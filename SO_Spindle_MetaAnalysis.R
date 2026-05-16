@@ -3,139 +3,74 @@
 # Overnight Memory Consolidation in Healthy Adults
 # Journal: Journal of Endocrinology
 # =============================================================================
-#
-# OBJECTIVES:
-# 1. Primary: Quantify overall effect of SO-spindle coupling on declarative
-#    memory consolidation using random-effects meta-analysis
-# 2. Secondary: Spindle-specific parameters (density, amplitude, sigma power)
-#    and memory consolidation outcomes
-# 3. Secondary: SO characteristics (amplitude, slope, duration) and memory
-# 4. Secondary: Subgroup analysis by memory type (verbal/visuospatial/procedural)
-# 5. Secondary: Biological moderators (age) via meta-regression
-# 6. Secondary: Risk of bias and publication bias assessment
-#
-# OUTPUTS:
-# FIGURES (PNG, 300 DPI):
-#   Figure 1 : PRISMA Flowchart         [MANUAL - not generated here]
-#   Figure 2 : Forest - Primary (Obj 1)
-#   Figure 3 : Forest - Spindle Params (Obj 2)
-#   Figure 4 : Forest - Memory Type Subgroup (Obj 4)
-#   Figure 5 : Leave-One-Out Sensitivity (Obj 1)
-#   Figure 6 : Funnel Plot (Obj 6)
-#   Figure 7 : Trim-and-Fill Funnel (Obj 6)
-#   Figure 8 : Meta-Regression Bubble - Age (Obj 5)
-#   Figure 9 : Risk of Bias Traffic Light + Bar (Obj 6)
-# SUPPLEMENTARY FIGURES:
-#   Supp Fig 1: Forest - SO Characteristics (Obj 3)
-#   Supp Fig 2: Baujat Influence Plot (Obj 1)
-# TABLES (DOCX):
-#   Table 1: Study Characteristics
-#   Table 2: Meta-Analytic Results Summary
-#   Table 3: Subgroup Analysis by Memory Type
-#   Table 4: Meta-Regression Results
-#   Table 5: Publication Bias Statistics
-# SUPPLEMENTARY TABLES:
-#   Supp Table 1: Risk of Bias Assessment
+# Data file: SO Spindle Memory DataExtraction.xlsx
+#   Sheet used: 10_R_Ready_Dataset  (primary effect sizes)
+#               8_Risk_of_Bias      (ROB assessment)
+#               2_Participants_Demographics (age data for meta-regression)
+# NOTE: Every sheet in this workbook has a merged TITLE row followed by
+#       actual column headers. We use skip=1 to read all sheets correctly.
 # =============================================================================
 
 
 # =============================================================================
-# SECTION 1: INSTALL AND LOAD PACKAGES
+# SECTION 1: PACKAGES
 # =============================================================================
 
+options(repos = c(CRAN = "https://cloud.r-project.org"))
 cat("=== INSTALLING AND LOADING PACKAGES ===\n")
 
-# Set CRAN mirror
-options(repos = c(CRAN = "https://cloud.r-project.org"))
+pkgs <- c("meta", "metafor", "readxl", "dplyr", "tidyr", "ggplot2",
+          "officer", "flextable", "scales", "patchwork", "stringr", "tools")
 
-packages_needed <- c(
-  "meta",         # Meta-analysis with RevMan5 forest plots
-  "metafor",      # Advanced meta-analysis and meta-regression
-  "readxl",       # Read Excel files
-  "dplyr",        # Data manipulation
-  "tidyr",        # Data reshaping
-  "ggplot2",      # Advanced graphics
-  "officer",      # Create Word documents
-  "flextable",    # Formatted tables for Word
-  "scales",       # Scale helpers
-  "gridExtra",    # Arrange multiple plots
-  "patchwork",    # Combine ggplot2 panels
-  "stringr",      # String operations
-  "forcats",      # Factor manipulation
-  "RColorBrewer", # Color palettes
-  "tools"         # toTitleCase etc.
-)
-
-new_packages <- packages_needed[!(packages_needed %in% installed.packages()[, "Package"])]
-if (length(new_packages) > 0) {
-  cat("Installing:", paste(new_packages, collapse = ", "), "\n")
-  install.packages(new_packages, dependencies = TRUE)
+new_pkgs <- pkgs[!(pkgs %in% installed.packages()[, "Package"])]
+if (length(new_pkgs) > 0) {
+  cat("Installing:", paste(new_pkgs, collapse = ", "), "\n")
+  install.packages(new_pkgs, dependencies = TRUE)
 }
-
-suppressPackageStartupMessages({
-  lapply(packages_needed, library, character.only = TRUE)
-})
-
+suppressPackageStartupMessages(lapply(pkgs, library, character.only = TRUE))
 cat("All packages loaded.\n\n")
 
 
 # =============================================================================
-# SECTION 2: OUTPUT DIRECTORIES
+# SECTION 2: PATHS
 # =============================================================================
-
-cat("=== SETTING UP OUTPUT DIRECTORIES ===\n")
 
 output_dir <- "C:/Users/Admin/Downloads/Sandhiya"
 data_path  <- file.path(output_dir, "SO Spindle Memory DataExtraction.xlsx")
+fig_dir    <- file.path(output_dir, "Figures")
+tab_dir    <- file.path(output_dir, "Tables")
+supp_dir   <- file.path(output_dir, "Supplementary")
 
-fig_dir  <- file.path(output_dir, "Figures")
-tab_dir  <- file.path(output_dir, "Tables")
-supp_dir <- file.path(output_dir, "Supplementary")
-
-for (d in c(fig_dir, tab_dir, supp_dir)) {
+for (d in c(fig_dir, tab_dir, supp_dir))
   dir.create(d, showWarnings = FALSE, recursive = TRUE)
-}
 
-cat("Figures  :", fig_dir,  "\n")
-cat("Tables   :", tab_dir,  "\n")
-cat("Supp     :", supp_dir, "\n\n")
+if (!file.exists(data_path))
+  stop("Excel file not found at: ", data_path)
+
+cat("Output directories ready.\n\n")
 
 
 # =============================================================================
 # SECTION 3: HELPER FUNCTIONS
 # =============================================================================
 
-# Save a base-R figure (png device already open outside)
-save_base_fig <- function(expr, filename, width = 14, height = 8, dpi = 300,
-                          type = "main") {
-  dir   <- if (type == "supp") supp_dir else fig_dir
-  fpath <- file.path(dir, paste0(filename, ".png"))
-  png(fpath, width = width, height = height, units = "in", res = dpi, bg = "white")
-  tryCatch(force(expr), error = function(e) {
-    message("Figure error [", filename, "]: ", e$message)
-  }, finally = dev.off())
-  cat("Saved:", fpath, "\n")
-  invisible(fpath)
+fmt_p <- function(p) {
+  if (is.null(p) || length(p) == 0 || is.na(p)) return("NA")
+  if (p < 0.001) return("<0.001")
+  format(round(p, 3), nsmall = 3)
 }
 
-# Save a ggplot figure
-save_gg <- function(p, filename, width = 12, height = 8, dpi = 300,
-                    type = "main") {
-  dir   <- if (type == "supp") supp_dir else fig_dir
-  fpath <- file.path(dir, paste0(filename, ".png"))
-  ggsave(fpath, plot = p, width = width, height = height, dpi = dpi,
-         bg = "white")
-  cat("Saved:", fpath, "\n")
-  invisible(fpath)
+save_gg <- function(p, filename, width = 12, height = 8, type = "main") {
+  d     <- if (type == "supp") supp_dir else fig_dir
+  fpath <- file.path(d, paste0(filename, ".png"))
+  ggsave(fpath, plot = p, width = width, height = height, dpi = 300, bg = "white")
+  cat("  Saved:", fpath, "\n")
 }
 
-# Save a flextable as a Word document
-save_word_table <- function(data, title, filename, subtitle = NULL,
-                             type = "main") {
-  dir   <- if (type == "supp") supp_dir else tab_dir
-  fpath <- file.path(dir, paste0(filename, ".docx"))
-
-  ft <- flextable(data) %>%
+save_word <- function(data, title, filename, subtitle = NULL, type = "main") {
+  d     <- if (type == "supp") supp_dir else tab_dir
+  fpath <- file.path(d, paste0(filename, ".docx"))
+  ft    <- flextable(data) %>%
     theme_booktabs() %>%
     bold(part = "header") %>%
     fontsize(size = 10, part = "all") %>%
@@ -145,98 +80,72 @@ save_word_table <- function(data, title, filename, subtitle = NULL,
     padding(padding = 4, part = "all") %>%
     bg(i = seq(2, nrow(data), by = 2), bg = "#F5F5F5", part = "body") %>%
     autofit()
-
-  doc <- read_docx() %>%
-    body_add_par(title, style = "heading 1")
-  if (!is.null(subtitle)) {
-    doc <- doc %>% body_add_par(subtitle, style = "Normal")
-  }
+  doc <- read_docx() %>% body_add_par(title, style = "heading 1")
+  if (!is.null(subtitle)) doc <- body_add_par(doc, subtitle, style = "Normal")
   doc <- doc %>%
     body_add_par("", style = "Normal") %>%
     body_add_flextable(ft) %>%
     body_add_par("", style = "Normal")
-
   print(doc, target = fpath)
-  cat("Saved:", fpath, "\n")
-  invisible(fpath)
+  cat("  Saved:", fpath, "\n")
 }
 
-# Format p-value for tables
-fmt_p <- function(p) {
-  if (is.null(p) || is.na(p)) return("NA")
-  if (p < 0.001) return("<0.001")
-  format(round(p, 3), nsmall = 3)
-}
-
-# Summarise a meta object into one-row data frame
-summarise_meta <- function(m, label) {
+meta_row <- function(m, label) {
   if (is.null(m)) return(NULL)
-  tryCatch({
-    data.frame(
-      Analysis        = label,
-      k               = m$k,
-      `r [95% CI]`    = paste0(
-        sprintf("%.2f", m$TE.random), " [",
-        sprintf("%.2f", m$lower.random), ", ",
-        sprintf("%.2f", m$upper.random), "]"),
-      Z               = sprintf("%.2f", m$statistic.random),
-      `p-value`       = fmt_p(m$pval.random),
-      `I² (%)`   = paste0(sprintf("%.1f", m$I2 * 100), "%"),
-      `τ²`  = sprintf("%.4f", m$tau^2),
-      Q               = sprintf("%.2f", m$Q),
-      `Q p-value`     = fmt_p(m$pval.Q),
-      check.names     = FALSE,
-      stringsAsFactors = FALSE
-    )
-  }, error = function(e) NULL)
+  tryCatch(data.frame(
+    Analysis   = label, k = m$k,
+    `r [95% CI]` = paste0(sprintf("%.2f", m$TE.random), " [",
+                           sprintf("%.2f", m$lower.random), ", ",
+                           sprintf("%.2f", m$upper.random), "]"),
+    Z          = sprintf("%.2f", m$statistic.random),
+    `p-value`  = fmt_p(m$pval.random),
+    `I2 (%)`   = paste0(sprintf("%.1f", m$I2 * 100), "%"),
+    tau2       = sprintf("%.4f", m$tau^2),
+    Q          = sprintf("%.2f", m$Q),
+    `Q p-val`  = fmt_p(m$pval.Q),
+    check.names = FALSE, stringsAsFactors = FALSE
+  ), error = function(e) NULL)
 }
 
 
 # =============================================================================
-# SECTION 4: DATA LOADING
+# SECTION 4: LOAD DATA (skip=1 to skip merged title row in every sheet)
 # =============================================================================
 
-cat("=== LOADING DATA ===\n")
+cat("=== LOADING DATA (skip=1 for merged title row) ===\n")
 
-if (!file.exists(data_path)) {
-  stop(
-    "Data file not found:\n  ", data_path,
-    "\nPlease place 'SO Spindle Memory DataExtraction.xlsx' in:\n  ", output_dir
-  )
-}
+# ---- PRIMARY: Sheet 10_R_Ready_Dataset ----
+# Columns: study_id, author, year, n, ri, fisher_z, sei, vi, pi,
+#          memory_type, coupling_metric, spindle_type, sleep_type,
+#          population, design, age_group, stress_condition, pharmacological,
+#          significant, direction, rob_overall, notes
+df_main <- read_excel(data_path, sheet = "10_R_Ready_Dataset", skip = 1)
+df_main <- df_main %>% filter(!is.na(ri), !is.na(n))
 
-sheet_names <- excel_sheets(data_path)
-cat("Sheets:", paste(sheet_names, collapse = ", "), "\n")
+cat("Sheet 10 loaded:", nrow(df_main), "rows,",
+    ncol(df_main), "columns\n")
+cat("Columns:", paste(names(df_main), collapse = ", "), "\n\n")
 
-# Pick the data sheet (first non-ROB sheet)
-main_sheet <- sheet_names[!grepl("rob|bias|quality|risk", sheet_names,
-                                  ignore.case = TRUE)][1]
-cat("Using sheet:", main_sheet, "\n")
+# ---- ROB: Sheet 8_Risk_of_Bias ----
+# Columns: Study_ID, Author_Year, Study_Type, Selection_Bias, Performance_Bias,
+#          Detection_Bias, Attrition_Bias, Reporting_Bias, Confounding_Bias,
+#          Sample_Size_Adequacy, Randomization, Blinding,
+#          Multiple_Testing_Control, Statistical_Method_Appropriateness,
+#          Overall_RoB, RoB_Justification
+df_rob <- read_excel(data_path, sheet = "8_Risk_of_Bias", skip = 1)
+df_rob <- df_rob %>% filter(!is.na(Study_ID))
+cat("Sheet 8 (ROB) loaded:", nrow(df_rob), "rows\n")
 
-df_raw <- read_excel(data_path, sheet = main_sheet)
-
-# Clean column names
-names(df_raw) <- names(df_raw) %>%
-  trimws() %>%
-  tolower() %>%
-  gsub("\\s+", "_", .) %>%
-  gsub("[^a-z0-9_]", "", .)
-
-cat("Columns:", paste(names(df_raw), collapse = ", "), "\n")
-cat("Rows:", nrow(df_raw), "\n\n")
-
-# Try to load ROB sheet
-rob_sheet <- sheet_names[grepl("rob|bias|quality|risk", sheet_names,
-                                ignore.case = TRUE)]
-if (length(rob_sheet) > 0) {
-  df_rob_raw <- read_excel(data_path, sheet = rob_sheet[1])
-  names(df_rob_raw) <- names(df_rob_raw) %>%
-    trimws() %>% tolower() %>%
-    gsub("\\s+", "_", .) %>% gsub("[^a-z0-9_]", "", .)
-  cat("ROB sheet loaded:", rob_sheet[1], "\n")
-} else {
-  df_rob_raw <- NULL
-  cat("No ROB sheet found; ROB columns will be searched in main data.\n")
+# ---- DEMOGRAPHICS: Sheet 2_Participants_Demographics ----
+# Columns: Study_ID, Author_Year, N_Total, N_Experimental, N_Control,
+#          N_Males, N_Females, Age_Mean_yrs, Age_SD, Age_Range, ...
+df_demo <- tryCatch(
+  read_excel(data_path, sheet = "2_Participants_Demographics", skip = 1),
+  error = function(e) { cat("Demo sheet error:", e$message, "\n"); NULL }
+)
+if (!is.null(df_demo)) {
+  df_demo <- df_demo %>% filter(!is.na(Study_ID))
+  cat("Sheet 2 (Demographics) loaded:", nrow(df_demo), "rows\n")
 }
 
 
@@ -246,682 +155,503 @@ if (length(rob_sheet) > 0) {
 
 cat("\n=== DATA PREPARATION ===\n")
 
-# Flexible column finder
-find_col <- function(df, patterns) {
-  nm <- tolower(names(df))
-  for (pat in patterns) {
-    idx <- grep(pat, nm, perl = TRUE)
-    if (length(idx) > 0) return(names(df)[idx[1]])
-  }
-  NULL
-}
-
-col_study   <- find_col(df_raw, c("^study$", "study_id", "author", "first_author",
-                                   "studyid", "study_label", "reference"))
-col_year    <- find_col(df_raw, c("^year$", "pub_year", "publication_year", "yr"))
-col_n       <- find_col(df_raw, c("^n$", "sample_size", "^n_total$", "total_n",
-                                   "participants", "^n_participants$"))
-col_r       <- find_col(df_raw, c("^r$", "r_value", "correlation", "pearson_r",
-                                   "effect_r", "r_pearson", "^cor$"))
-col_r_lower <- find_col(df_raw, c("ci_lower", "lower_ci", "ci_lo", "r_lower",
-                                   "ll", "lci", "lower_95"))
-col_r_upper <- find_col(df_raw, c("ci_upper", "upper_ci", "ci_hi", "r_upper",
-                                   "ul", "uci", "upper_95"))
-col_p       <- find_col(df_raw, c("^p$", "p_value", "^p_val$", "significance",
-                                   "pvalue"))
-col_memory  <- find_col(df_raw, c("memory_type", "memory_cat", "memory",
-                                   "outcome_type", "task_type", "task",
-                                   "outcome_category"))
-col_sleep   <- find_col(df_raw, c("sleep_measure", "sleep_variable",
-                                   "measure_type", "predictor", "sleep",
-                                   "variable", "measure"))
-col_age     <- find_col(df_raw, c("age_mean", "mean_age", "^age$", "avg_age"))
-
-cat("Column mapping:\n")
-for (nm in c("study", "year", "n", "r", "CI lower", "CI upper", "p",
-             "memory type", "sleep measure", "age")) {
-  val <- get(paste0("col_", gsub(" ", "_", nm)))
-  cat("  ", nm, "->", ifelse(is.null(val), "NOT FOUND", val), "\n")
-}
-
-# Build standardised data frame
-df <- df_raw
-
-if (!is.null(col_study))   df$study_label      <- as.character(df[[col_study]])
-if (!is.null(col_year))    df$year              <- as.numeric(df[[col_year]])
-if (!is.null(col_n))       df$n                 <- as.numeric(df[[col_n]])
-if (!is.null(col_r))       df$r                 <- as.numeric(df[[col_r]])
-if (!is.null(col_r_lower)) df$r_lower           <- as.numeric(df[[col_r_lower]])
-if (!is.null(col_r_upper)) df$r_upper           <- as.numeric(df[[col_r_upper]])
-if (!is.null(col_p))       df$p_value           <- as.numeric(df[[col_p]])
-if (!is.null(col_memory))  df$memory_type_raw   <- as.character(df[[col_memory]])
-if (!is.null(col_sleep))   df$sleep_measure_raw <- as.character(df[[col_sleep]])
-if (!is.null(col_age))     df$age_mean          <- as.numeric(df[[col_age]])
-
-# Ensure required columns exist
-if (!"study_label" %in% names(df)) df$study_label <- paste0("Study_", seq_len(nrow(df)))
-if (!"year" %in% names(df))        df$year        <- 2020L
-if (!"n" %in% names(df))           stop("Sample size column not found. Check Excel column names.")
-if (!"r" %in% names(df))           stop("Correlation coefficient (r) column not found.")
-
-# Remove rows with missing essential data
-df <- df %>%
-  filter(!is.na(r), !is.na(n), n > 3) %>%
+df <- df_main %>%
   mutate(
-    r = pmax(-0.9999, pmin(0.9999, r)),
-    study_label = ifelse(is.na(study_label) | study_label == "",
-                         paste0("Study_", row_number()), study_label)
-  )
+    # Force numeric
+    ri   = as.numeric(ri),
+    n    = as.numeric(n),
+    year = as.numeric(year),
+    pi   = as.numeric(pi),
 
-cat("\nRecords after cleaning:", nrow(df), "from",
-    length(unique(df$study_label)), "unique studies\n")
+    # Bound r to valid range
+    ri   = pmax(-0.9999, pmin(0.9999, ri)),
 
-# ---- Categorise sleep measures ----
-if ("sleep_measure_raw" %in% names(df)) {
-  df <- df %>%
-    mutate(sleep_measure_cat = case_when(
-      grepl("coupl|nest|so.*spindle|spindle.*so|phase.*lock", sleep_measure_raw,
-            ignore.case = TRUE)                                          ~ "SO-Spindle Coupling",
-      grepl("spindle.*dens|dens.*spindle|spindle.*count|#.*spindle|n.*spindle",
-            sleep_measure_raw, ignore.case = TRUE)                      ~ "Spindle Density",
-      grepl("spindle.*amp|amp.*spindle", sleep_measure_raw,
-            ignore.case = TRUE)                                          ~ "Spindle Amplitude",
-      grepl("spindle.*freq|freq.*spindle|hz.*spindle|spindle.*hz",
-            sleep_measure_raw, ignore.case = TRUE)                      ~ "Spindle Frequency",
-      grepl("sigma|12.*15|13.*15|14.*16|sigma.*power|sleep.*spindle.*power",
-            sleep_measure_raw, ignore.case = TRUE)                      ~ "Sigma Power",
-      grepl("so.*amp|amp.*so|sw.*amp|slow.*wave.*amp|amp.*slow.*osc",
-            sleep_measure_raw, ignore.case = TRUE)                      ~ "SO Amplitude",
-      grepl("so.*slope|slope|steep|down.*slope|up.*slope",
-            sleep_measure_raw, ignore.case = TRUE)                      ~ "SO Slope",
-      grepl("so.*dur|duration|so.*width|nrem.*dur",
-            sleep_measure_raw, ignore.case = TRUE)                      ~ "SO Duration",
-      grepl("delta.*power|0.5.*4|0.5.*2|1.*4|slow.*power",
-            sleep_measure_raw, ignore.case = TRUE)                      ~ "Delta/SO Power",
-      TRUE                                                               ~ "SO-Spindle Coupling"
-    ))
-} else {
-  df$sleep_measure_cat <- "SO-Spindle Coupling"
-}
+    # Base study ID (strip trailing letter: "S01a" -> "S01")
+    base_id = sub("[a-z]+$", "", study_id),
 
-# ---- Categorise memory types ----
-if ("memory_type_raw" %in% names(df)) {
-  df <- df %>%
-    mutate(memory_cat = case_when(
-      grepl("verbal|word|pair|list|story|narr|prose|episod|explicit",
-            memory_type_raw, ignore.case = TRUE)                        ~ "Verbal Declarative",
-      grepl("spatial|visual|object|face|location|place|scene|picture|image",
-            memory_type_raw, ignore.case = TRUE)                        ~ "Visuospatial",
-      grepl("proced|motor|finger|mirror|seq|skill|rotation|habit",
-            memory_type_raw, ignore.case = TRUE)                        ~ "Procedural",
-      grepl("declar|hippoc", memory_type_raw, ignore.case = TRUE)      ~ "Verbal Declarative",
-      TRUE                                                               ~ "Verbal Declarative"
-    ))
-} else {
-  df$memory_cat <- "Verbal Declarative"
-}
+    # Study label for forest plot
+    study_label = paste0(
+      tools::toTitleCase(as.character(author)),
+      " et al. (", year, ")"
+    )
+  ) %>%
+  filter(!is.na(ri), !is.na(n), n > 3)
 
+# Disambiguate duplicate study labels (multiple outcomes per study)
+df <- df %>%
+  group_by(study_label) %>%
+  mutate(
+    cnt = n(),
+    study_label = if_else(
+      cnt > 1,
+      paste0(study_label, " - ", tools::toTitleCase(as.character(memory_type))),
+      study_label
+    )
+  ) %>%
+  ungroup() %>%
+  select(-cnt)
+
+cat("Effect sizes:", nrow(df), "from", length(unique(df$base_id)), "unique studies\n\n")
+
+# ---- Memory type categories ----
+df <- df %>%
+  mutate(memory_cat = case_when(
+    grepl("declarative|verbal|explicit|episodic|hippocampal",
+          memory_type, ignore.case = TRUE)    ~ "Verbal Declarative",
+    grepl("spatial|visual|object|face|location|scene|picture",
+          memory_type, ignore.case = TRUE)    ~ "Visuospatial",
+    grepl("procedural|motor|implicit|skill|sequence|finger",
+          memory_type, ignore.case = TRUE)    ~ "Procedural",
+    TRUE                                      ~ "Verbal Declarative"
+  ))
+
+# ---- Sleep/coupling measure categories ----
+df <- df %>%
+  mutate(sleep_measure_cat = case_when(
+    grepl("phase|degree|coupling|nest|lock|phase_degree",
+          coupling_metric, ignore.case = TRUE) ~ "SO-Spindle Coupling (Phase)",
+    grepl("MI|modulation.index|modulation_index",
+          coupling_metric, ignore.case = TRUE) ~ "SO-Spindle Coupling (MI)",
+    grepl("density|count|number",
+          coupling_metric, ignore.case = TRUE) ~ "Spindle Density",
+    grepl("amplitude|amp",
+          coupling_metric, ignore.case = TRUE) ~ "Spindle Amplitude",
+    grepl("sigma|power",
+          coupling_metric, ignore.case = TRUE) ~ "Sigma Power",
+    grepl("so.*amp|slow.*osc.*amp|delta",
+          coupling_metric, ignore.case = TRUE) ~ "SO Amplitude",
+    TRUE                                       ~ "SO-Spindle Coupling (Phase)"
+  ))
+
+# Broader category for grouping
+df <- df %>%
+  mutate(measure_broad = case_when(
+    grepl("SO-Spindle", sleep_measure_cat) ~ "SO-Spindle Coupling",
+    grepl("Spindle",    sleep_measure_cat) ~ "Spindle Parameter",
+    grepl("SO Amp|SO Slope|SO Dur|Delta", sleep_measure_cat) ~ "SO Characteristic",
+    TRUE ~ "SO-Spindle Coupling"
+  ))
+
+cat("Memory categories:\n"); print(table(df$memory_cat))
 cat("\nSleep measure categories:\n"); print(table(df$sleep_measure_cat))
-cat("\nMemory type categories:\n");   print(table(df$memory_cat))
+cat("\n")
 
+# ---- Join continuous age ----
+if (!is.null(df_demo) && "Age_Mean_yrs" %in% names(df_demo)) {
+  df_age <- df_demo %>%
+    select(Study_ID, age_mean = Age_Mean_yrs) %>%
+    mutate(base_id = Study_ID,
+           age_mean = as.numeric(age_mean))
 
-# =============================================================================
-# SECTION 6: DEFINE ANALYSIS SUBSETS
-# =============================================================================
+  df <- df %>%
+    left_join(df_age %>% select(base_id, age_mean), by = "base_id")
 
-# Objective 1: Primary - all coupling/spindle/SO studies -> declarative memory
+  cat("Age data joined:", sum(!is.na(df$age_mean)), "studies with age_mean\n")
+} else {
+  df$age_mean <- NA_real_
+  cat("No continuous age data - meta-regression will be skipped.\n")
+}
+cat("\n")
+
+# ---- Define analysis subsets ----
+# Objective 1 (Primary): All declarative memory outcomes
 df_primary <- df %>%
-  filter(memory_cat %in% c("Verbal Declarative", "Visuospatial") |
-         !("memory_cat" %in% names(df)))
-
+  filter(memory_cat %in% c("Verbal Declarative", "Visuospatial"))
 if (nrow(df_primary) < 2) df_primary <- df
 
-# Objective 2: Spindle parameters only
+# Objective 2: Coupling/spindle measures
 df_spindle <- df %>%
-  filter(sleep_measure_cat %in% c("SO-Spindle Coupling", "Spindle Density",
-                                   "Spindle Amplitude", "Spindle Frequency",
-                                   "Sigma Power"))
+  filter(measure_broad %in% c("SO-Spindle Coupling", "Spindle Parameter"))
 if (nrow(df_spindle) < 2) df_spindle <- df
 
-# Objective 3: SO characteristics only
-df_so <- df %>%
-  filter(sleep_measure_cat %in% c("SO Amplitude", "SO Slope", "SO Duration",
-                                   "Delta/SO Power"))
+# Objective 3: SO characteristics
+df_so <- df %>% filter(measure_broad == "SO Characteristic")
 if (nrow(df_so) < 2) df_so <- df
 
-cat("\nSubset sizes: Primary =", nrow(df_primary),
-    "| Spindle =", nrow(df_spindle),
-    "| SO =", nrow(df_so), "\n")
+cat(sprintf("Subset sizes: Primary=%d | Spindle=%d | SO=%d | All=%d\n\n",
+            nrow(df_primary), nrow(df_spindle), nrow(df_so), nrow(df)))
 
 
 # =============================================================================
-# SECTION 7: PRIMARY META-ANALYSIS (OBJECTIVE 1)
+# SECTION 6: META-ANALYSIS RUNNER
 # =============================================================================
 
-cat("\n=== Objective 1: Primary Meta-Analysis ===\n")
+run_meta <- function(data, subgroup_col = NULL, label = "") {
+  has_sg <- !is.null(subgroup_col) &&
+    subgroup_col %in% names(data) &&
+    length(unique(data[[subgroup_col]])) > 1
 
-m_primary <- tryCatch(
-  metacor(
-    cor      = r,
-    n        = n,
-    studlab  = study_label,
-    data     = df_primary,
-    sm       = "ZCOR",
-    random   = TRUE,
-    common   = FALSE,
-    method.tau          = "REML",
-    method.random.ci    = "HK",
-    title    = "SO-Spindle Coupling and Declarative Memory Consolidation"
-  ),
-  error = function(e) { cat("Primary meta-analysis error:", e$message, "\n"); NULL }
-)
+  sg <- if (has_sg) data[[subgroup_col]] else NULL
 
-if (!is.null(m_primary)) {
-  cat("k =", m_primary$k, "| r =", round(m_primary$TE.random, 3),
-      "| I2 =", round(m_primary$I2 * 100, 1), "%\n")
+  tryCatch(
+    metacor(
+      cor              = ri,
+      n                = n,
+      studlab          = study_label,
+      data             = data,
+      sm               = "ZCOR",
+      random           = TRUE,
+      common           = FALSE,
+      method.tau       = "REML",
+      method.random.ci = "HK",
+      subgroup         = sg,
+      subgroup.name    = if (has_sg) subgroup_col else NULL,
+      print.subgroup.name = TRUE,
+      title            = label
+    ),
+    error = function(e) {
+      cat("  Meta-analysis ERROR [", label, "]:", e$message, "\n")
+      NULL
+    }
+  )
 }
 
 
 # =============================================================================
-# FIGURE 2: FOREST PLOT - PRIMARY (RevMan5 style)
+# SECTION 7: RUN ALL META-ANALYSES
 # =============================================================================
 
-if (!is.null(m_primary) && m_primary$k >= 2) {
+cat("=== RUNNING META-ANALYSES ===\n")
 
-  n_stu    <- m_primary$k
-  fig_h    <- max(7, 2.5 + n_stu * 0.38)
-  fig_path <- file.path(fig_dir, "Figure2_Forest_PrimaryOutcome.png")
+m_primary <- run_meta(df_primary,
+                      label = "SO-Spindle Coupling - Declarative Memory Consolidation")
 
-  png(fig_path, width = 15, height = fig_h, units = "in", res = 300, bg = "white")
+m_coupling <- run_meta(df_spindle, "sleep_measure_cat",
+                       "Coupling/Spindle Parameters - Memory Consolidation")
+
+m_memory   <- run_meta(df, "memory_cat",
+                       "Subgroup by Memory Type")
+
+m_so_meta  <- run_meta(df_so, "sleep_measure_cat",
+                       "SO Characteristics - Memory Consolidation")
+
+cat("\nResults summary:\n")
+for (nm in c("m_primary","m_coupling","m_memory","m_so_meta")) {
+  m <- get(nm)
+  if (!is.null(m))
+    cat(sprintf("  %-14s k=%2d  r=%.2f [%.2f, %.2f]  I2=%.0f%%\n",
+                nm, m$k, m$TE.random, m$lower.random, m$upper.random, m$I2*100))
+  else
+    cat(sprintf("  %-14s FAILED\n", nm))
+}
+cat("\n")
+
+
+# =============================================================================
+# FOREST PLOT FUNCTION (RevMan5 style)
+# =============================================================================
+
+make_forest <- function(m, filename, title_txt = "", type = "main",
+                        sort_desc = TRUE, width = 15) {
+  if (is.null(m) || m$k < 2) {
+    cat("  Skipping", filename, "(need >= 2 studies)\n")
+    return(invisible(NULL))
+  }
+  d     <- if (type == "supp") supp_dir else fig_dir
+  fpath <- file.path(d, paste0(filename, ".png"))
+  k     <- m$k
+  n_sg  <- if (!is.null(m$byvar)) length(unique(m$byvar)) else 0
+  fig_h <- max(7, 2.5 + k * 0.40 + n_sg * 0.65)
+
+  png(fpath, width = width, height = fig_h, units = "in", res = 300, bg = "white")
 
   forest(
-    m_primary,
-    layout          = "RevMan5",
-    sortvar         = -(r),
-    col.square      = "black",
-    col.square.lines = "black",
-    col.diamond     = "black",
+    m,
+    layout            = "RevMan5",
+    sortvar           = if (sort_desc) -(m$TE) else NULL,
+    col.square        = "black",
+    col.square.lines  = "black",
+    col.diamond       = "black",
     col.diamond.lines = "black",
-    col.by          = "black",
-    fontsize        = if (n_stu <= 20) 10 else 8,
-    spacing         = if (n_stu <= 30) 0.85 else 0.65,
-    squaresize      = 0.7,
-    xlab            = "Correlation Coefficient (r)",
-    xlim            = c(-0.5, 1.0),
-    at              = c(-0.5, -0.25, 0, 0.25, 0.5, 0.75, 1.0),
-    leftlabs        = c("Study", "N"),
-    rightlabs       = c("r [95% CI]", "Weight"),
-    label.right     = "Favours positive coupling",
-    label.left      = "Favours negative coupling",
-    print.tau2      = TRUE,
-    print.I2        = TRUE,
-    print.Q         = TRUE,
-    digits          = 2,
+    col.by            = "black",
+    fontsize          = if (k <= 20) 10 else 8,
+    spacing           = if (k <= 30) 0.85 else 0.65,
+    squaresize        = 0.7,
+    xlab              = "Correlation Coefficient (r)",
+    xlim              = c(-0.5, 1.0),
+    at                = c(-0.5, -0.25, 0, 0.25, 0.5, 0.75, 1.0),
+    leftlabs          = c("Study", "N"),
+    rightlabs         = c("r [95% CI]", "Weight"),
+    print.tau2        = TRUE,
+    print.I2          = TRUE,
+    print.Q           = TRUE,
+    digits            = 2,
     addrows.below.overall = 1,
-    text.random     = "Random-effects model",
-    overall         = TRUE,
-    overall.hetstat = TRUE
+    text.random       = "Random-effects model",
+    overall           = TRUE,
+    overall.hetstat   = TRUE
   )
 
+  if (nchar(trimws(title_txt)) > 0)
+    title(title_txt, cex.main = 0.95, font.main = 2)
+
   dev.off()
-  cat("Saved: Figure2_Forest_PrimaryOutcome.png\n")
+  cat("  Saved:", fpath, "\n")
 }
 
 
 # =============================================================================
-# SECTION 8: SPINDLE PARAMETERS META-ANALYSIS (OBJECTIVE 2)
+# SECTION 8: GENERATE ALL FIGURES
 # =============================================================================
 
-cat("\n=== Objective 2: Spindle Parameters ===\n")
+cat("=== GENERATING FIGURES ===\n")
 
-n_spindle_cats <- length(unique(df_spindle$sleep_measure_cat))
+# Figure 2: Primary forest plot
+make_forest(
+  m_primary, "Figure2_Forest_PrimaryOutcome",
+  "Figure 2. SO-Spindle Coupling and Declarative Memory Consolidation\n(Random-effects model, REML estimator)"
+)
 
-m_spindle <- tryCatch(
-  metacor(
-    cor      = r,
-    n        = n,
-    studlab  = study_label,
-    data     = df_spindle,
-    sm       = "ZCOR",
-    random   = TRUE,
-    common   = FALSE,
-    method.tau       = "REML",
-    method.random.ci = "HK",
-    subgroup         = if (n_spindle_cats > 1) sleep_measure_cat else NULL,
-    subgroup.name    = "Spindle Parameter",
-    print.subgroup.name = TRUE,
-    title    = "Spindle Parameters and Memory Consolidation"
-  ),
-  error = function(e) { cat("Spindle meta-analysis error:", e$message, "\n"); NULL }
+# Figure 3: Coupling/spindle parameters subgroup
+make_forest(
+  m_coupling, "Figure3_Forest_CouplingParameters",
+  "Figure 3. Coupling and Spindle Parameters as Predictors of Memory Consolidation\n(Subgroup by coupling metric)",
+  sort_desc = FALSE
+)
+
+# Figure 4: Memory type subgroup
+make_forest(
+  m_memory, "Figure4_Forest_MemoryTypeSubgroup",
+  "Figure 4. Subgroup Analysis by Memory Type\n(Verbal Declarative vs. Visuospatial vs. Procedural)",
+  sort_desc = FALSE
+)
+
+# Supplementary Figure 1: SO characteristics
+make_forest(
+  m_so_meta, "SuppFigure1_Forest_SOCharacteristics",
+  "Supplementary Figure 1. SO Characteristics and Memory Consolidation",
+  type = "supp"
 )
 
 
 # =============================================================================
-# FIGURE 3: FOREST PLOT - SPINDLE PARAMETERS (Objective 2)
+# FIGURE 5: LEAVE-ONE-OUT SENSITIVITY
 # =============================================================================
-
-if (!is.null(m_spindle) && m_spindle$k >= 2) {
-
-  n_stu    <- m_spindle$k
-  n_grp    <- max(1, n_spindle_cats)
-  fig_h    <- max(8, 3 + n_stu * 0.38 + n_grp * 0.6)
-  fig_path <- file.path(fig_dir, "Figure3_Forest_SpindleParameters.png")
-
-  png(fig_path, width = 15, height = fig_h, units = "in", res = 300, bg = "white")
-
-  forest(
-    m_spindle,
-    layout          = "RevMan5",
-    sortvar         = if (n_spindle_cats > 1) sleep_measure_cat else -(r),
-    col.square      = "black",
-    col.square.lines = "black",
-    col.diamond     = "black",
-    col.by          = "black",
-    fontsize        = if (n_stu <= 20) 10 else 8,
-    spacing         = if (n_stu <= 30) 0.85 else 0.65,
-    squaresize      = 0.7,
-    xlab            = "Correlation Coefficient (r)",
-    xlim            = c(-0.5, 1.0),
-    at              = c(-0.5, -0.25, 0, 0.25, 0.5, 0.75, 1.0),
-    leftlabs        = c("Study", "N"),
-    rightlabs       = c("r [95% CI]", "Weight"),
-    print.tau2      = TRUE,
-    print.I2        = TRUE,
-    print.Q         = TRUE,
-    digits          = 2,
-    text.random     = "Random-effects model"
-  )
-
-  dev.off()
-  cat("Saved: Figure3_Forest_SpindleParameters.png\n")
-}
-
-
-# =============================================================================
-# SECTION 9: SUBGROUP BY MEMORY TYPE (OBJECTIVE 4)
-# =============================================================================
-
-cat("\n=== Objective 4: Subgroup by Memory Type ===\n")
-
-n_mem_cats <- length(unique(df$memory_cat))
-cat("Memory categories:", paste(unique(df$memory_cat), collapse = ", "), "\n")
-
-m_memory <- tryCatch(
-  metacor(
-    cor      = r,
-    n        = n,
-    studlab  = study_label,
-    data     = df,
-    sm       = "ZCOR",
-    random   = TRUE,
-    common   = FALSE,
-    method.tau       = "REML",
-    method.random.ci = "HK",
-    subgroup         = if (n_mem_cats > 1) memory_cat else NULL,
-    subgroup.name    = "Memory Type",
-    print.subgroup.name = TRUE,
-    title    = "SO-Spindle Coupling and Memory Consolidation by Memory Type"
-  ),
-  error = function(e) { cat("Memory subgroup error:", e$message, "\n"); NULL }
-)
-
-
-# =============================================================================
-# FIGURE 4: FOREST PLOT - MEMORY TYPE SUBGROUP (Objective 4)
-# =============================================================================
-
-if (!is.null(m_memory) && m_memory$k >= 2) {
-
-  n_stu    <- m_memory$k
-  n_grp    <- max(1, n_mem_cats)
-  fig_h    <- max(8, 3 + n_stu * 0.38 + n_grp * 0.6)
-  fig_path <- file.path(fig_dir, "Figure4_Forest_MemoryTypeSubgroup.png")
-
-  png(fig_path, width = 15, height = fig_h, units = "in", res = 300, bg = "white")
-
-  forest(
-    m_memory,
-    layout          = "RevMan5",
-    sortvar         = if (n_mem_cats > 1) memory_cat else -(r),
-    col.square      = "black",
-    col.square.lines = "black",
-    col.diamond     = "black",
-    col.by          = "black",
-    fontsize        = if (n_stu <= 20) 10 else 8,
-    spacing         = if (n_stu <= 30) 0.85 else 0.65,
-    squaresize      = 0.7,
-    xlab            = "Correlation Coefficient (r)",
-    xlim            = c(-0.5, 1.0),
-    at              = c(-0.5, -0.25, 0, 0.25, 0.5, 0.75, 1.0),
-    leftlabs        = c("Study", "N"),
-    rightlabs       = c("r [95% CI]", "Weight"),
-    print.tau2      = TRUE,
-    print.I2        = TRUE,
-    print.Q         = TRUE,
-    digits          = 2,
-    text.random     = "Random-effects model"
-  )
-
-  dev.off()
-  cat("Saved: Figure4_Forest_MemoryTypeSubgroup.png\n")
-}
-
-
-# =============================================================================
-# SECTION 10: LEAVE-ONE-OUT SENSITIVITY ANALYSIS (OBJECTIVE 1)
-# =============================================================================
-
-cat("\n=== Sensitivity: Leave-One-Out ===\n")
 
 if (!is.null(m_primary) && m_primary$k >= 4) {
+  cat("  Generating Figure 5 (LOO)...\n")
 
-  loo <- metainf(m_primary, pooled = "random")
+  loo   <- metainf(m_primary, pooled = "random")
+  k     <- m_primary$k
+  fpath <- file.path(fig_dir, "Figure5_LeaveOneOut_Sensitivity.png")
+  fig_h <- max(6, 2.5 + (k + 2) * 0.44)
 
-  n_stu    <- m_primary$k
-  fig_h    <- max(6, 2.5 + (n_stu + 2) * 0.42)
-  fig_path <- file.path(fig_dir, "Figure5_LeaveOneOut_Sensitivity.png")
-
-  png(fig_path, width = 14, height = fig_h, units = "in", res = 300, bg = "white")
-
+  png(fpath, width = 14, height = fig_h, units = "in", res = 300, bg = "white")
   forest(
     loo,
-    layout          = "RevMan5",
-    col.square      = "black",
+    layout           = "RevMan5",
+    col.square       = "black",
     col.square.lines = "black",
-    col.diamond     = "black",
-    fontsize        = if (n_stu <= 20) 10 else 8,
-    spacing         = if (n_stu <= 30) 0.85 else 0.65,
-    squaresize      = 0.7,
-    xlab            = "Correlation Coefficient (r)",
-    digits          = 2,
-    leftlabs        = c("Omitted Study", "N"),
-    rightlabs       = c("r [95% CI]", "Weight")
+    col.diamond      = "black",
+    fontsize         = if (k <= 20) 10 else 8,
+    spacing          = 0.85,
+    squaresize       = 0.7,
+    xlab             = "Correlation Coefficient (r)",
+    digits           = 2,
+    leftlabs         = c("Omitted Study", "N"),
+    rightlabs        = c("r [95% CI]", "Weight")
   )
-
-  title(
-    "Figure 5. Leave-One-Out Sensitivity Analysis\nEffect of SO-Spindle Coupling on Declarative Memory",
-    cex.main = 0.95, font.main = 2
-  )
-
+  title("Figure 5. Leave-One-Out Sensitivity Analysis\nEffect of SO-Spindle Coupling on Declarative Memory",
+        cex.main = 0.95, font.main = 2)
   dev.off()
-  cat("Saved: Figure5_LeaveOneOut_Sensitivity.png\n")
-
+  cat("  Saved:", fpath, "\n")
 } else {
-  cat("Insufficient studies (< 4) for leave-one-out analysis.\n")
+  cat("  Skipping Figure 5 LOO (need >= 4 studies, have",
+      if(!is.null(m_primary)) m_primary$k else 0, ")\n")
 }
 
 
 # =============================================================================
-# SECTION 11: PUBLICATION BIAS (OBJECTIVE 6)
+# FIGURES 6 & 7: PUBLICATION BIAS
 # =============================================================================
 
-cat("\n=== Objective 6: Publication Bias ===\n")
-
-egger_res  <- NULL
-begg_res   <- NULL
-tf_res     <- NULL
+egger_res <- begg_res <- tf_res <- NULL
 
 if (!is.null(m_primary) && m_primary$k >= 5) {
 
   egger_res <- tryCatch(
-    metabias(m_primary, method.bias = "Egger",  k.min = 3),
-    error = function(e) { cat("Egger error:", e$message, "\n"); NULL }
-  )
+    metabias(m_primary, method.bias = "Egger", k.min = 3),
+    error = function(e) { cat("  Egger error:", e$message, "\n"); NULL })
   begg_res  <- tryCatch(
-    metabias(m_primary, method.bias = "Begg",   k.min = 3),
-    error = function(e) { cat("Begg error:",  e$message, "\n"); NULL }
-  )
+    metabias(m_primary, method.bias = "Begg",  k.min = 3),
+    error = function(e) { cat("  Begg error:",  e$message, "\n"); NULL })
   tf_res    <- tryCatch(
     trimfill(m_primary),
-    error = function(e) { cat("Trim-fill error:", e$message, "\n"); NULL }
-  )
+    error = function(e) { cat("  TrimFill error:", e$message, "\n"); NULL })
 
-  # ---- FIGURE 6: Funnel Plot ----
-  fig_path <- file.path(fig_dir, "Figure6_FunnelPlot.png")
-  png(fig_path, width = 8, height = 7, units = "in", res = 300, bg = "white")
-
-  par(mar = c(5, 5, 4, 2))
-
-  funnel(
-    m_primary,
-    col      = "black",
-    bg       = "grey40",
-    pch      = 21,
-    cex      = 1.3,
-    xlab     = "Correlation Coefficient (r)",
-    ylab     = "Standard Error",
-    back     = "white",
-    hlines   = NULL,
-    lty.fixed = 0
-  )
-
-  if (!is.null(egger_res)) {
-    mtext(
-      paste0("Egger's test: z = ", round(egger_res$statistic, 2),
-             ", p = ", fmt_p(egger_res$p.value)),
-      side = 1, line = 4, cex = 0.85, font = 2
-    )
-  }
-  title("Figure 6. Funnel Plot\nSO-Spindle Coupling and Memory Consolidation",
-        cex.main = 0.95, font.main = 2)
-
+  # Figure 6: Funnel plot
+  fpath <- file.path(fig_dir, "Figure6_FunnelPlot.png")
+  png(fpath, width = 8, height = 7, units = "in", res = 300, bg = "white")
+  par(mar = c(5.5, 5, 4, 2))
+  funnel(m_primary, col = "black", bg = "grey40", pch = 21, cex = 1.3,
+         xlab = "Correlation Coefficient (r)", ylab = "Standard Error",
+         back = "white", hlines = NULL, lty.fixed = 0)
+  if (!is.null(egger_res))
+    mtext(paste0("Egger's test: z = ", round(egger_res$statistic, 2),
+                 ", p = ", fmt_p(egger_res$p.value)),
+          side = 1, line = 4.5, cex = 0.9, font = 2)
+  title("Figure 6. Funnel Plot — Publication Bias Assessment\nSO-Spindle Coupling and Memory Consolidation",
+        cex.main = 0.90, font.main = 2)
   dev.off()
-  cat("Saved: Figure6_FunnelPlot.png\n")
+  cat("  Saved: Figure6_FunnelPlot.png\n")
 
-  # ---- FIGURE 7: Trim-and-Fill Funnel Plot ----
+  # Figure 7: Trim-and-Fill
   if (!is.null(tf_res)) {
-
-    fig_path <- file.path(fig_dir, "Figure7_TrimFillFunnel.png")
-    png(fig_path, width = 8, height = 7, units = "in", res = 300, bg = "white")
-
-    par(mar = c(5, 5, 4, 2))
-
-    funnel(
-      tf_res,
-      col      = "black",
-      bg       = "grey40",
-      pch      = 21,
-      cex      = 1.3,
-      xlab     = "Correlation Coefficient (r)",
-      ylab     = "Standard Error",
-      back     = "white",
-      hlines   = NULL,
-      lty.fixed = 0
-    )
-
-    n_imp <- tf_res$k0
-    mtext(
-      paste0("Trim-and-fill: ", n_imp,
-             " imputed study/studies (filled squares)"),
-      side = 1, line = 4, cex = 0.85, font = 2
-    )
+    fpath <- file.path(fig_dir, "Figure7_TrimFillFunnel.png")
+    png(fpath, width = 8, height = 7, units = "in", res = 300, bg = "white")
+    par(mar = c(5.5, 5, 4, 2))
+    funnel(tf_res, col = "black", bg = "grey40", pch = 21, cex = 1.3,
+           xlab = "Correlation Coefficient (r)", ylab = "Standard Error",
+           back = "white", hlines = NULL, lty.fixed = 0)
+    mtext(paste0("Trim-and-Fill: ", tf_res$k0, " stud",
+                 if (tf_res$k0 == 1) "y" else "ies", " imputed"),
+          side = 1, line = 4.5, cex = 0.9, font = 2)
     title("Figure 7. Trim-and-Fill Adjusted Funnel Plot\nSO-Spindle Coupling and Memory Consolidation",
-          cex.main = 0.95, font.main = 2)
-
+          cex.main = 0.90, font.main = 2)
     dev.off()
-    cat("Saved: Figure7_TrimFillFunnel.png\n")
+    cat("  Saved: Figure7_TrimFillFunnel.png\n")
   }
 
 } else {
-  cat("Fewer than 5 studies - publication bias tests not run.\n")
+  cat("  Figures 6 & 7 skipped (need >= 5 studies in primary set, have",
+      if(!is.null(m_primary)) m_primary$k else 0, ")\n")
 }
 
 
 # =============================================================================
-# SECTION 12: META-REGRESSION - AGE MODERATOR (OBJECTIVE 5)
+# FIGURE 8: META-REGRESSION BUBBLE PLOT (AGE)
 # =============================================================================
-
-cat("\n=== Objective 5: Meta-Regression (Age) ===\n")
 
 m_reg <- NULL
 
 if ("age_mean" %in% names(df) && sum(!is.na(df$age_mean)) >= 5) {
 
   df_reg <- df %>%
-    filter(!is.na(age_mean), !is.na(r), !is.na(n)) %>%
+    filter(!is.na(age_mean), !is.na(ri), !is.na(n)) %>%
     mutate(
-      z_val   = 0.5 * log((1 + r) / (1 - r)),
-      var_z   = 1 / (n - 3),
-      se_z    = sqrt(var_z),
-      wt      = 1 / var_z
+      z_val  = 0.5 * log((1 + ri) / (1 - ri)),
+      var_z  = 1 / (n - 3),
+      se_z   = sqrt(var_z),
+      wt     = 1 / var_z
     )
 
   m_reg <- tryCatch(
-    rma(yi = z_val, sei = se_z, mods = ~ age_mean,
-        data = df_reg, method = "REML"),
-    error = function(e) { cat("Meta-regression error:", e$message, "\n"); NULL }
+    rma(yi = z_val, sei = se_z, mods = ~ age_mean, data = df_reg, method = "REML"),
+    error = function(e) { cat("  Meta-regression error:", e$message, "\n"); NULL }
   )
 
   if (!is.null(m_reg)) {
-    cat("Meta-regression: beta(age) =",
-        round(coef(m_reg)["age_mean"], 4),
-        "p =", fmt_p(m_reg$pval["age_mean"]), "\n")
+    cat("  Meta-regression: beta(age)=", round(coef(m_reg)["age_mean"], 4),
+        "  p=", fmt_p(m_reg$pval["age_mean"]), "\n")
 
-    # Prediction for bubble plot
-    age_seq  <- seq(min(df_reg$age_mean) - 1, max(df_reg$age_mean) + 1,
-                    length.out = 200)
-    pred     <- predict(m_reg, newmods = age_seq)
-
-    r2z <- function(z) (exp(2 * z) - 1) / (exp(2 * z) + 1)
-
-    pred_df <- data.frame(
-      age    = age_seq,
-      r_pred = r2z(pred$pred),
-      r_lo   = r2z(pred$ci.lb),
-      r_hi   = r2z(pred$ci.ub)
-    )
-
+    r2z  <- function(z) (exp(2*z) - 1) / (exp(2*z) + 1)
+    ag   <- seq(min(df_reg$age_mean, na.rm=TRUE) - 1,
+                max(df_reg$age_mean, na.rm=TRUE) + 1, length.out = 200)
+    pr   <- predict(m_reg, newmods = ag)
+    pdf  <- data.frame(age=ag, rp=r2z(pr$pred), rl=r2z(pr$ci.lb), rh=r2z(pr$ci.ub))
     df_reg <- df_reg %>%
-      mutate(
-        r_disp   = r2z(z_val),
-        bub_size = sqrt(wt / max(wt)) * 9
-      )
+      mutate(rdisp = r2z(z_val), bsz = sqrt(wt / max(wt)) * 9)
 
-    beta_age <- round(coef(m_reg)["age_mean"], 4)
-    p_age    <- fmt_p(m_reg$pval["age_mean"])
-    r2_pct   <- if (!is.na(m_reg$R2)) paste0(round(m_reg$R2, 1), "%") else "NA"
+    b  <- round(coef(m_reg)["age_mean"], 4)
+    pv <- fmt_p(m_reg$pval["age_mean"])
+    r2 <- if (!is.na(m_reg$R2)) paste0(round(m_reg$R2, 1), "%") else "NA"
 
-    p_bubble <- ggplot() +
-      geom_ribbon(data = pred_df,
-                  aes(x = age, ymin = r_lo, ymax = r_hi),
-                  fill = "grey80", alpha = 0.55) +
-      geom_line(data = pred_df,
-                aes(x = age, y = r_pred),
+    p_bub <- ggplot() +
+      geom_ribbon(data = pdf, aes(x=age, ymin=rl, ymax=rh),
+                  fill = "grey80", alpha = 0.5) +
+      geom_line(data = pdf, aes(x=age, y=rp),
                 colour = "black", linewidth = 1) +
       geom_hline(yintercept = 0, linetype = "dashed",
                  colour = "grey50", linewidth = 0.6) +
       geom_point(data = df_reg,
-                 aes(x = age_mean, y = r_disp, size = bub_size),
-                 shape = 21, fill = "grey40", colour = "black",
-                 alpha = 0.85, stroke = 0.7) +
+                 aes(x=age_mean, y=rdisp, size=bsz),
+                 shape=21, fill="grey40", colour="black", alpha=0.85, stroke=0.7) +
       scale_size_identity() +
       labs(
-        title    = "Figure 8. Meta-Regression: Age as Moderator of\nSO-Spindle Coupling on Memory Consolidation",
-        x        = "Mean Sample Age (years)",
-        y        = "Correlation Coefficient (r)",
-        caption  = paste0("β = ", beta_age, ", p = ", p_age,
-                          "   R² = ", r2_pct,
-                          "   Bubble size ∝ precision (1/SE²)")
+        title   = "Figure 8. Meta-Regression: Age as Moderator of\nSO-Spindle Coupling on Memory Consolidation",
+        x       = "Mean Sample Age (years)",
+        y       = "Correlation Coefficient (r)",
+        caption = paste0("β = ", b, "   p = ", pv, "   R² = ", r2,
+                         "   |   Bubble size ∝ precision (1/SE²)")
       ) +
-      coord_cartesian(ylim = c(-0.2, 1.0)) +
+      coord_cartesian(ylim = c(-0.3, 1.0)) +
       theme_classic(base_size = 12) +
       theme(
-        plot.title      = element_text(face = "bold", size = 11, hjust = 0.5),
-        plot.caption    = element_text(hjust = 0.5, size = 9),
-        axis.text       = element_text(colour = "black"),
-        axis.line       = element_line(colour = "black"),
-        panel.background = element_rect(fill = "white"),
-        plot.background  = element_rect(fill = "white")
+        plot.title       = element_text(face="bold", size=11, hjust=0.5),
+        plot.caption     = element_text(hjust=0.5, size=9),
+        axis.text        = element_text(colour="black"),
+        panel.background = element_rect(fill="white"),
+        plot.background  = element_rect(fill="white")
       )
 
-    save_gg(p_bubble, "Figure8_MetaRegression_Age", width = 9, height = 7)
+    save_gg(p_bub, "Figure8_MetaRegression_Age", width=9, height=7)
   }
 
 } else {
-  cat("Age data not available or insufficient studies (< 5).\n")
+  cat("  Figure 8 skipped - age data available for only",
+      sum(!is.na(df$age_mean)), "studies (need >= 5).\n")
 }
 
 
 # =============================================================================
-# SECTION 13: RISK OF BIAS VISUALISATION (OBJECTIVE 6)
+# FIGURE 9: RISK OF BIAS (TRAFFIC LIGHT + BAR CHART)
 # =============================================================================
 
-cat("\n=== Objective 6: Risk of Bias ===\n")
+cat("  Generating Figure 9 (ROB)...\n")
 
-# Identify ROB columns in main or ROB sheet
-rob_search_df <- if (!is.null(df_rob_raw)) df_rob_raw else df
-rob_cols <- names(rob_search_df)[
-  grepl("rob|domain|bias|random|select|perform|detect|attrit|report|blind|alloc|confound|meas",
-        names(rob_search_df), ignore.case = TRUE)
-]
+# ROB domain columns (known from sheet inspection)
+rob_domain_cols <- intersect(
+  c("Selection_Bias", "Performance_Bias", "Detection_Bias",
+    "Attrition_Bias", "Reporting_Bias", "Confounding_Bias",
+    "Sample_Size_Adequacy", "Randomization", "Blinding",
+    "Multiple_Testing_Control", "Statistical_Method_Appropriateness"),
+  names(df_rob)
+)
 
-# Remove the study label / year columns from rob_cols
-rob_cols <- rob_cols[!grepl("study|author|year|label|ref|id$", rob_cols,
-                             ignore.case = TRUE)]
+cat("  ROB domains found:", length(rob_domain_cols), "\n")
+cat("  Columns:", paste(rob_domain_cols, collapse=", "), "\n")
 
-cat("ROB columns:", paste(rob_cols, collapse = ", "), "\n")
+if (length(rob_domain_cols) >= 2) {
 
-if (length(rob_cols) >= 2) {
+  # Study label from ROB sheet
+  rob_study_col <- if ("Author_Year" %in% names(df_rob)) "Author_Year" else "Study_ID"
 
-  # Build a tidy ROB frame
-  study_col_rob <- find_col(rob_search_df,
-                             c("^study$", "study_id", "author", "study_label",
-                               "reference", "first_author"))
-
-  rob_df <- rob_search_df
-  if (!is.null(study_col_rob)) {
-    rob_df$study_label <- as.character(rob_search_df[[study_col_rob]])
-  } else {
-    rob_df$study_label <- paste0("Study_", seq_len(nrow(rob_df)))
-  }
-
-  rob_long <- rob_df %>%
-    select(study_label, all_of(rob_cols)) %>%
-    pivot_longer(cols = all_of(rob_cols),
-                 names_to  = "Domain",
-                 values_to = "Judgment") %>%
+  rob_long <- df_rob %>%
+    select(Study = all_of(rob_study_col), all_of(rob_domain_cols)) %>%
+    pivot_longer(-Study, names_to = "Domain", values_to = "Judgment") %>%
     mutate(
       Judgment = case_when(
-        grepl("low|good|yes|adequate|\\+|clear|met",
-              as.character(Judgment), ignore.case = TRUE)                   ~ "Low",
-        grepl("high|poor|no|\\-|not met|serious|critical",
-              as.character(Judgment), ignore.case = TRUE)                   ~ "High",
-        TRUE                                                                 ~ "Some concerns"
+        grepl("^low$|^low\\s*-|^l$|^1$|adequate|yes|good|clear|minimal",
+              as.character(Judgment), ignore.case = TRUE)                ~ "Low",
+        grepl("high|poor|no|critical|serious|^3$|not met|major",
+              as.character(Judgment), ignore.case = TRUE)                ~ "High",
+        TRUE                                                              ~ "Some concerns"
       ),
-      Judgment = factor(Judgment,
-                        levels = c("Low", "Some concerns", "High")),
+      Judgment = factor(Judgment, levels = c("Low","Some concerns","High")),
       Domain   = Domain %>%
         gsub("_", " ", .) %>%
-        gsub("(?i)rob[_ ]?|domain[_ ]?|bias[_ ]?|risk[_ ]?of[_ ]?", "", .,
-             perl = TRUE) %>%
-        trimws() %>%
-        tools::toTitleCase()
+        gsub("Bias$", "", .) %>%
+        trimws()
     )
 
-  rob_colors  <- c("Low"           = "#00B050",
-                   "Some concerns" = "#FFC000",
-                   "High"          = "#FF0000")
-  rob_symbols <- c("Low" = "+", "Some concerns" = "?", "High" = "−")
+  rob_pal <- c("Low"="#00B050","Some concerns"="#FFC000","High"="#FF0000")
+  rob_sym <- c("Low"="+","Some concerns"="?","High"="−")
 
-  # Traffic-light heatmap
-  p_rob_heat <- ggplot(rob_long,
-                       aes(x = Domain, y = study_label, fill = Judgment)) +
-    geom_tile(colour = "white", linewidth = 0.6) +
-    geom_text(aes(label = rob_symbols[as.character(Judgment)]),
-              colour = "white", fontface = "bold", size = 4.5) +
-    scale_fill_manual(values = rob_colors, name = "Risk of Bias",
-                      labels = c("Low risk", "Some concerns", "High risk")) +
-    labs(title = "Risk of Bias: Traffic Light Plot",
-         x = NULL, y = NULL) +
-    theme_classic(base_size = 10) +
-    theme(
-      axis.text.x      = element_text(angle = 40, hjust = 1, colour = "black"),
-      axis.text.y      = element_text(colour = "black"),
-      legend.position  = "right",
-      plot.title       = element_text(face = "bold", size = 11),
-      panel.background = element_rect(fill = "white"),
-      plot.background  = element_rect(fill = "white")
-    )
+  # Traffic light heatmap
+  p_heat <- ggplot(rob_long, aes(x=Domain, y=Study, fill=Judgment)) +
+    geom_tile(colour="white", linewidth=0.7) +
+    geom_text(aes(label=rob_sym[as.character(Judgment)]),
+              colour="white", fontface="bold", size=4.5) +
+    scale_fill_manual(values=rob_pal, name="Risk of Bias",
+                      labels=c("Low risk","Some concerns","High risk")) +
+    labs(title="A. Traffic Light Plot", x=NULL, y=NULL) +
+    theme_classic(base_size=10) +
+    theme(axis.text.x   = element_text(angle=40, hjust=1, colour="black"),
+          axis.text.y   = element_text(colour="black"),
+          legend.position="right",
+          plot.title    = element_text(face="bold", size=11),
+          panel.background = element_rect(fill="white"),
+          plot.background  = element_rect(fill="white"))
 
   # Summary bar chart
   rob_sum <- rob_long %>%
@@ -930,97 +660,35 @@ if (length(rob_cols) >= 2) {
     mutate(pct = n / sum(n) * 100) %>%
     ungroup()
 
-  p_rob_bar <- ggplot(rob_sum,
-                      aes(x = Domain, y = pct, fill = Judgment)) +
-    geom_bar(stat = "identity", colour = "white", linewidth = 0.3) +
-    geom_text(aes(label = paste0(round(pct), "%")),
-              position = position_stack(vjust = 0.5),
-              colour = "white", fontface = "bold", size = 3.5) +
-    scale_fill_manual(values = rob_colors, name = "Risk of Bias",
-                      labels = c("Low risk", "Some concerns", "High risk")) +
-    scale_y_continuous(labels = scales::percent_format(scale = 1),
-                       limits = c(0, 100)) +
-    labs(title = "Risk of Bias: Summary",
-         x = NULL, y = "Percentage of Studies (%)") +
+  p_bar <- ggplot(rob_sum, aes(x=Domain, y=pct, fill=Judgment)) +
+    geom_bar(stat="identity", colour="white", linewidth=0.3) +
+    geom_text(aes(label=paste0(round(pct),"%")),
+              position=position_stack(vjust=0.5),
+              colour="white", fontface="bold", size=3.5) +
+    scale_fill_manual(values=rob_pal, name="Risk of Bias",
+                      labels=c("Low risk","Some concerns","High risk")) +
+    scale_y_continuous(labels=scales::percent_format(scale=1), limits=c(0,101)) +
+    labs(title="B. Summary Bar Chart", x=NULL, y="Percentage of Studies (%)") +
     coord_flip() +
-    theme_classic(base_size = 10) +
-    theme(
-      axis.text        = element_text(colour = "black"),
-      legend.position  = "right",
-      plot.title       = element_text(face = "bold", size = 11),
-      panel.background = element_rect(fill = "white"),
-      plot.background  = element_rect(fill = "white")
-    )
+    theme_classic(base_size=10) +
+    theme(axis.text        = element_text(colour="black"),
+          legend.position  = "right",
+          plot.title       = element_text(face="bold", size=11),
+          panel.background = element_rect(fill="white"),
+          plot.background  = element_rect(fill="white"))
 
-  p_rob_combined <- p_rob_heat / p_rob_bar +
+  p_rob <- p_heat / p_bar +
     plot_annotation(
       title = "Figure 9. Risk of Bias Assessment",
-      theme = theme(
-        plot.title = element_text(face = "bold", size = 13, hjust = 0.5)
-      )
+      theme = theme(plot.title=element_text(face="bold", size=13, hjust=0.5))
     )
 
-  n_stu_rob <- length(unique(rob_long$study_label))
-  save_gg(p_rob_combined, "Figure9_RiskOfBias",
-          width = 12, height = max(10, 4 + n_stu_rob * 0.35))
+  nsr <- length(unique(rob_long$Study))
+  save_gg(p_rob, "Figure9_RiskOfBias",
+          width=12, height=max(10, 4 + nsr * 0.4))
 
 } else {
-  cat("ROB columns not found. Skipping Figure 9.\n")
-  cat("Expected column names containing: rob, domain, bias, random, selection,",
-      "performance, detection, attrition, reporting, blinding\n")
-}
-
-
-# =============================================================================
-# SUPPLEMENTARY FIGURE 1: SO CHARACTERISTICS (OBJECTIVE 3)
-# =============================================================================
-
-cat("\n=== Supp Fig 1: SO Characteristics ===\n")
-
-m_so_meta <- tryCatch(
-  metacor(
-    cor      = r,
-    n        = n,
-    studlab  = study_label,
-    data     = df_so,
-    sm       = "ZCOR",
-    random   = TRUE,
-    common   = FALSE,
-    method.tau       = "REML",
-    method.random.ci = "HK",
-    subgroup         = if (length(unique(df_so$sleep_measure_cat)) > 1)
-                         sleep_measure_cat else NULL,
-    title    = "SO Characteristics and Memory Consolidation"
-  ),
-  error = function(e) { cat("SO meta-analysis error:", e$message, "\n"); NULL }
-)
-
-if (!is.null(m_so_meta) && m_so_meta$k >= 2) {
-
-  n_stu    <- m_so_meta$k
-  fig_h    <- max(6, 2.5 + n_stu * 0.38)
-  fig_path <- file.path(supp_dir, "SuppFigure1_Forest_SOCharacteristics.png")
-
-  png(fig_path, width = 14, height = fig_h, units = "in", res = 300, bg = "white")
-
-  forest(
-    m_so_meta,
-    layout          = "RevMan5",
-    sortvar         = -(r),
-    col.square      = "black",
-    col.diamond     = "black",
-    fontsize        = if (n_stu <= 20) 10 else 8,
-    spacing         = 0.85,
-    squaresize      = 0.7,
-    xlab            = "Correlation Coefficient (r)",
-    xlim            = c(-0.5, 1.0),
-    at              = c(-0.5, -0.25, 0, 0.25, 0.5, 0.75, 1.0),
-    digits          = 2,
-    text.random     = "Random-effects model"
-  )
-
-  dev.off()
-  cat("Saved: SuppFigure1_Forest_SOCharacteristics.png\n")
+  cat("  Figure 9 skipped: domain columns not detected in ROB sheet.\n")
 }
 
 
@@ -1028,389 +696,261 @@ if (!is.null(m_so_meta) && m_so_meta$k >= 2) {
 # SUPPLEMENTARY FIGURE 2: BAUJAT INFLUENCE PLOT
 # =============================================================================
 
-cat("\n=== Supp Fig 2: Baujat Plot ===\n")
-
 if (!is.null(m_primary) && m_primary$k >= 4) {
-
-  fig_path <- file.path(supp_dir, "SuppFigure2_BaujatInfluencePlot.png")
-  png(fig_path, width = 9, height = 8, units = "in", res = 300, bg = "white")
-
-  tryCatch({
-    baujat(
-      m_primary,
-      col  = "black",
-      pch  = 19,
-      cex  = 1.2,
-      main = "Supp Figure 2. Baujat Plot: Study-Level Influence Analysis",
-      xlab = "Contribution to Overall Heterogeneity (Q)",
-      ylab = "Influence on Pooled Estimate"
-    )
-  }, error = function(e) {
-    plot.new()
-    text(0.5, 0.5, paste("Baujat plot error:\n", e$message), cex = 0.9)
-  })
-
+  fpath <- file.path(supp_dir, "SuppFigure2_BaujatInfluencePlot.png")
+  png(fpath, width=9, height=8, units="in", res=300, bg="white")
+  tryCatch(
+    baujat(m_primary, col="black", pch=19, cex=1.2,
+           main="Supplementary Figure 2. Baujat Influence Analysis\nSO-Spindle Coupling and Declarative Memory",
+           xlab="Contribution to Overall Heterogeneity (Q)",
+           ylab="Influence on Pooled Estimate"),
+    error=function(e){plot.new();text(0.5,0.5,paste("Error:",e$message))}
+  )
   dev.off()
-  cat("Saved: SuppFigure2_BaujatInfluencePlot.png\n")
+  cat("  Saved: SuppFigure2_BaujatInfluencePlot.png\n")
 }
 
 
 # =============================================================================
-# TABLE 1: STUDY CHARACTERISTICS
+# SECTION 9: GENERATE WORD TABLES
 # =============================================================================
 
-cat("\n=== Table 1: Study Characteristics ===\n")
+cat("\n=== GENERATING TABLES ===\n")
 
-# Build Table 1 with available columns
-t1_cols <- c("study_label", "year", "n", "age_mean", "memory_cat",
-             "sleep_measure_cat")
+# ---- TABLE 1: Study Characteristics ----
+cat("  Building Table 1...\n")
 
-# Add optional columns if present
-for (opt in c("country", "sex_pct_female", "age_sd", "sleep_stage",
-              "eeg_method", "task_name")) {
-  if (opt %in% names(df)) t1_cols <- c(t1_cols, opt)
-}
+t1_cols <- c("study_id","author","year","n","memory_cat",
+             "sleep_measure_cat","spindle_type","sleep_type",
+             "design","age_group","pharmacological","rob_overall")
 t1_cols <- intersect(t1_cols, names(df))
 
 df_t1 <- df %>%
   select(all_of(t1_cols)) %>%
-  arrange(year, study_label) %>%
+  arrange(year, author) %>%
   rename_with(~ case_when(
-    . == "study_label"      ~ "Study",
+    . == "study_id"         ~ "Study ID",
+    . == "author"           ~ "First Author",
     . == "year"             ~ "Year",
     . == "n"                ~ "N",
-    . == "age_mean"         ~ "Mean Age (years)",
-    . == "age_sd"           ~ "SD Age",
     . == "memory_cat"       ~ "Memory Type",
-    . == "sleep_measure_cat" ~ "Sleep Measure",
-    . == "country"          ~ "Country",
-    . == "sex_pct_female"   ~ "% Female",
-    . == "sleep_stage"      ~ "Sleep Stage",
-    . == "eeg_method"       ~ "EEG Method",
-    . == "task_name"        ~ "Memory Task",
-    TRUE                    ~ .
+    . == "sleep_measure_cat"~ "Coupling Measure",
+    . == "spindle_type"     ~ "Spindle Type",
+    . == "sleep_type"       ~ "Sleep Type",
+    . == "design"           ~ "Study Design",
+    . == "age_group"        ~ "Age Group",
+    . == "pharmacological"  ~ "Pharmacological",
+    . == "rob_overall"      ~ "Overall RoB",
+    TRUE ~ tools::toTitleCase(gsub("_"," ",.))
   ))
 
-save_word_table(
+save_word(
   df_t1,
   title    = "Table 1. Characteristics of Included Studies",
-  subtitle = paste0("Studies examining slow oscillation-sleep spindle coupling and ",
-                    "overnight memory consolidation in healthy adults (k = ",
-                    nrow(df_t1), ")"),
+  subtitle = paste0("Characteristics of ", length(unique(df$base_id)),
+                    " studies (", nrow(df), " effect sizes) examining slow oscillation-",
+                    "sleep spindle coupling and overnight memory consolidation ",
+                    "in healthy adults. RoB = Risk of Bias."),
   filename = "Table1_StudyCharacteristics"
 )
 
 
-# =============================================================================
-# TABLE 2: META-ANALYTIC RESULTS SUMMARY
-# =============================================================================
-
-cat("\n=== Table 2: Meta-Analytic Results ===\n")
+# ---- TABLE 2: Meta-Analytic Results ----
+cat("  Building Table 2...\n")
 
 rows_t2 <- list(
-  summarise_meta(m_primary, "Primary: SO-Spindle Coupling → Declarative Memory"),
-  summarise_meta(m_spindle, "Secondary: Spindle Parameters → Memory"),
-  summarise_meta(m_so_meta, "Secondary: SO Characteristics → Memory"),
-  summarise_meta(m_memory,  "Subgroup Analysis: All Memory Types Combined")
+  meta_row(m_primary, "Primary: SO-Spindle Coupling → Declarative Memory"),
+  meta_row(m_coupling,"Secondary: Coupling/Spindle Parameters → Memory"),
+  meta_row(m_so_meta, "Secondary: SO Characteristics → Memory"),
+  meta_row(m_memory,  "Subgroup: All Memory Types (Combined)")
 )
 rows_t2 <- rows_t2[!sapply(rows_t2, is.null)]
 
-if (length(rows_t2) > 0) {
-  df_t2 <- do.call(rbind, rows_t2)
-
-  save_word_table(
-    df_t2,
+if (length(rows_t2) > 0)
+  save_word(
+    do.call(rbind, rows_t2),
     title    = "Table 2. Summary of Meta-Analytic Results",
-    subtitle = paste0("Random-effects model (REML estimator, Hartung-Knapp correction). ",
-                      "r = back-transformed Fisher z correlation; I² = heterogeneity; ",
-                      "τ² = between-study variance."),
+    subtitle = paste0("Random-effects model (REML estimator) with Hartung-Knapp ",
+                      "confidence interval correction applied to all analyses. ",
+                      "r = back-transformed Fisher z-correlation coefficient; ",
+                      "I² = proportion of variance attributable to heterogeneity; ",
+                      "τ² = estimated between-study variance; ",
+                      "Q = Cochran's heterogeneity statistic."),
     filename = "Table2_MetaAnalyticResults"
   )
-}
 
 
-# =============================================================================
-# TABLE 3: SUBGROUP ANALYSIS BY MEMORY TYPE
-# =============================================================================
-
-cat("\n=== Table 3: Subgroup Analysis ===\n")
+# ---- TABLE 3: Subgroup by Memory Type ----
+cat("  Building Table 3...\n")
 
 if (!is.null(m_memory) && !is.null(m_memory$byvar)) {
-
-  bylevs <- m_memory$bylevs
-  n_lev  <- length(bylevs)
-
-  rows_t3 <- lapply(seq_len(n_lev), function(i) {
-    tryCatch(
-      data.frame(
-        `Memory Type`   = bylevs[i],
-        k               = m_memory$k.w[i],
-        `r [95% CI]`    = paste0(sprintf("%.2f", m_memory$TE.random.w[i]),
-                                  " [",
-                                  sprintf("%.2f", m_memory$lower.random.w[i]),
-                                  ", ",
-                                  sprintf("%.2f", m_memory$upper.random.w[i]),
-                                  "]"),
-        `p-value`       = fmt_p(m_memory$pval.random.w[i]),
-        `I² (%)`   = paste0(sprintf("%.1f", m_memory$I2.w[i] * 100), "%"),
-        `τ²`  = sprintf("%.4f", m_memory$tau.w[i]^2),
-        check.names     = FALSE,
-        stringsAsFactors = FALSE
-      ),
-      error = function(e) NULL
-    )
-  })
+  levs    <- m_memory$bylevs
+  rows_t3 <- lapply(seq_along(levs), function(i)
+    tryCatch(data.frame(
+      `Memory Type`  = levs[i],
+      k              = m_memory$k.w[i],
+      `r [95% CI]`   = paste0(sprintf("%.2f", m_memory$TE.random.w[i]),
+                               " [", sprintf("%.2f", m_memory$lower.random.w[i]),
+                               ", ", sprintf("%.2f", m_memory$upper.random.w[i]), "]"),
+      `p-value`      = fmt_p(m_memory$pval.random.w[i]),
+      `I2 (%)`       = paste0(sprintf("%.1f", m_memory$I2.w[i]*100), "%"),
+      tau2           = sprintf("%.4f", m_memory$tau.w[i]^2),
+      check.names=FALSE, stringsAsFactors=FALSE
+    ), error=function(e) NULL)
+  )
   rows_t3 <- rows_t3[!sapply(rows_t3, is.null)]
 
-  # Test for subgroup differences row
-  subgp_diff <- tryCatch(
-    data.frame(
-      `Memory Type`   = "Test for subgroup differences",
-      k               = "",
-      `r [95% CI]`    = "",
-      `p-value`       = fmt_p(m_memory$pval.Q.b.random),
-      `I² (%)`   = "",
-      `τ²`  = "",
-      check.names     = FALSE,
-      stringsAsFactors = FALSE
-    ),
-    error = function(e) NULL
-  )
+  diff_row <- tryCatch(data.frame(
+    `Memory Type`="Test for subgroup differences", k="", `r [95% CI]`="",
+    `p-value`=fmt_p(m_memory$pval.Q.b.random), `I2 (%)`="", tau2="",
+    check.names=FALSE, stringsAsFactors=FALSE), error=function(e) NULL)
+  if (!is.null(diff_row)) rows_t3 <- c(rows_t3, list(diff_row))
 
-  if (!is.null(subgp_diff)) rows_t3 <- c(rows_t3, list(subgp_diff))
-
-  if (length(rows_t3) > 0) {
-    df_t3 <- do.call(rbind, rows_t3)
-    save_word_table(
-      df_t3,
+  if (length(rows_t3) > 0)
+    save_word(
+      do.call(rbind, rows_t3),
       title    = "Table 3. Subgroup Analysis by Memory Type",
-      subtitle = "Random-effects model stratified by memory consolidation domain.",
+      subtitle = "Random-effects model (REML) stratified by memory consolidation domain. Test for subgroup differences uses the Q-between statistic.",
       filename = "Table3_SubgroupAnalysis"
     )
-  }
 }
 
 
-# =============================================================================
-# TABLE 4: META-REGRESSION RESULTS
-# =============================================================================
+# ---- TABLE 4: Meta-Regression ----
+cat("  Building Table 4...\n")
 
-cat("\n=== Table 4: Meta-Regression ===\n")
-
-if (!is.null(m_reg)) {
-  tryCatch({
-    cs <- coef(summary(m_reg))
-
-    df_t4_coef <- data.frame(
-      Predictor        = rownames(cs),
-      `β`         = sprintf("%.4f", cs[, "estimate"]),
-      SE               = sprintf("%.4f", cs[, "se"]),
-      `z-value`        = sprintf("%.2f",  cs[, "zval"]),
-      `p-value`        = sapply(cs[, "pval"], fmt_p),
-      `95% CI Lower`   = sprintf("%.4f", cs[, "ci.lb"]),
-      `95% CI Upper`   = sprintf("%.4f", cs[, "ci.ub"]),
-      check.names      = FALSE,
-      stringsAsFactors = FALSE
-    )
-    df_t4_coef$Predictor <- gsub("intrcpt",  "Intercept", df_t4_coef$Predictor)
-    df_t4_coef$Predictor <- gsub("age_mean", "Mean Age (years)", df_t4_coef$Predictor)
-
-    model_fit <- data.frame(
-      Predictor       = c("QM (omnibus test)", "QE (residual heterogeneity)",
-                          "R² (variance explained)"),
-      `β`        = c(sprintf("%.2f", m_reg$QM),
-                          sprintf("%.2f", m_reg$QE),
-                          if (!is.na(m_reg$R2)) paste0(round(m_reg$R2, 1), "%") else "NA"),
-      SE              = "",
-      `z-value`       = "",
-      `p-value`       = c(fmt_p(m_reg$QMp), fmt_p(m_reg$QEp), ""),
-      `95% CI Lower`  = "",
-      `95% CI Upper`  = "",
-      check.names     = FALSE,
-      stringsAsFactors = FALSE
-    )
-
-    df_t4 <- rbind(df_t4_coef, model_fit)
-
-    save_word_table(
-      df_t4,
-      title    = "Table 4. Meta-Regression: Age as a Biological Moderator",
-      subtitle = paste0("Mixed-effects meta-regression (REML estimation). ",
-                        "Outcome: Fisher z-transformed correlation (r). ",
-                        "Predictor: mean sample age (years)."),
-      filename = "Table4_MetaRegression"
-    )
-  }, error = function(e) cat("Table 4 error:", e$message, "\n"))
-}
+if (!is.null(m_reg)) tryCatch({
+  cs <- coef(summary(m_reg))
+  df_t4 <- data.frame(
+    Predictor      = gsub("intrcpt","Intercept",
+                          gsub("age_mean","Mean Age (years)",rownames(cs))),
+    Beta           = sprintf("%.4f", cs[,"estimate"]),
+    SE             = sprintf("%.4f", cs[,"se"]),
+    z              = sprintf("%.2f",  cs[,"zval"]),
+    `p-value`      = sapply(cs[,"pval"], fmt_p),
+    `95% CI Lower` = sprintf("%.4f", cs[,"ci.lb"]),
+    `95% CI Upper` = sprintf("%.4f", cs[,"ci.ub"]),
+    check.names=FALSE, stringsAsFactors=FALSE
+  )
+  fit_rows <- data.frame(
+    Predictor=c("QM (omnibus)","QE (residual heterogeneity)","R² explained"),
+    Beta=c(sprintf("%.2f",m_reg$QM), sprintf("%.2f",m_reg$QE),
+           if(!is.na(m_reg$R2)) paste0(round(m_reg$R2,1),"%") else "NA"),
+    SE="", z="",
+    `p-value`=c(fmt_p(m_reg$QMp),fmt_p(m_reg$QEp),""),
+    `95% CI Lower`="", `95% CI Upper`="",
+    check.names=FALSE, stringsAsFactors=FALSE
+  )
+  save_word(rbind(df_t4,fit_rows),
+            title="Table 4. Meta-Regression: Age as a Biological Moderator",
+            subtitle="Mixed-effects meta-regression (REML). Outcome: Fisher z-transformed r. Predictor: mean sample age (years).",
+            filename="Table4_MetaRegression")
+}, error=function(e) cat("  Table 4 error:", e$message, "\n"))
 
 
-# =============================================================================
-# TABLE 5: PUBLICATION BIAS STATISTICS
-# =============================================================================
+# ---- TABLE 5: Publication Bias ----
+cat("  Building Table 5...\n")
 
-cat("\n=== Table 5: Publication Bias ===\n")
+if (!is.null(m_primary) && m_primary$k >= 5) tryCatch({
+  rows_pb <- list()
 
-if (!is.null(m_primary) && m_primary$k >= 5) {
-  tryCatch({
+  if (!is.null(egger_res))
+    rows_pb[[length(rows_pb)+1]] <- data.frame(
+      Test="Egger's Regression Test",
+      Statistic=paste0("z = ",round(egger_res$statistic,2)),
+      `p-value`=fmt_p(egger_res$p.value),
+      Interpretation=if(egger_res$p.value<0.05)"Asymmetry detected"else"No significant asymmetry",
+      check.names=FALSE,stringsAsFactors=FALSE)
 
-    rows_pb <- list()
+  if (!is.null(begg_res))
+    rows_pb[[length(rows_pb)+1]] <- data.frame(
+      Test="Begg's Rank Correlation Test",
+      Statistic=paste0("z = ",round(begg_res$statistic,2)),
+      `p-value`=fmt_p(begg_res$p.value),
+      Interpretation=if(begg_res$p.value<0.05)"Asymmetry detected"else"No significant asymmetry",
+      check.names=FALSE,stringsAsFactors=FALSE)
 
-    if (!is.null(egger_res)) {
-      rows_pb[[length(rows_pb) + 1]] <- data.frame(
-        Test            = "Egger's Regression Test",
-        Statistic       = paste0("z = ", round(egger_res$statistic, 2)),
-        `p-value`       = fmt_p(egger_res$p.value),
-        Interpretation  = if (egger_res$p.value < 0.05)
-                            "Significant asymmetry detected"
-                          else "No significant asymmetry",
-        check.names     = FALSE, stringsAsFactors = FALSE
-      )
-    }
+  if (!is.null(tf_res)) rows_pb <- c(rows_pb, list(
+    data.frame(Test="Trim-and-Fill: Observed estimate",
+               Statistic=paste0("r = ",sprintf("%.2f",m_primary$TE.random),
+                                " [",sprintf("%.2f",m_primary$lower.random),
+                                ", ",sprintf("%.2f",m_primary$upper.random),"]"),
+               `p-value`="",Interpretation="Unadjusted pooled effect",
+               check.names=FALSE,stringsAsFactors=FALSE),
+    data.frame(Test="Trim-and-Fill: Adjusted estimate",
+               Statistic=paste0("r = ",sprintf("%.2f",tf_res$TE.random),
+                                " [",sprintf("%.2f",tf_res$lower.random),
+                                ", ",sprintf("%.2f",tf_res$upper.random),"]"),
+               `p-value`="",
+               Interpretation=paste0(tf_res$k0," stud",
+                                     if(tf_res$k0==1)"y"else"ies"," imputed"),
+               check.names=FALSE,stringsAsFactors=FALSE)
+  ))
 
-    if (!is.null(begg_res)) {
-      rows_pb[[length(rows_pb) + 1]] <- data.frame(
-        Test            = "Begg's Rank Correlation Test",
-        Statistic       = paste0("z = ", round(begg_res$statistic, 2)),
-        `p-value`       = fmt_p(begg_res$p.value),
-        Interpretation  = if (begg_res$p.value < 0.05)
-                            "Significant asymmetry detected"
-                          else "No significant asymmetry",
-        check.names     = FALSE, stringsAsFactors = FALSE
-      )
-    }
+  if (length(rows_pb) > 0)
+    save_word(do.call(rbind,rows_pb),
+              title="Table 5. Publication Bias Assessment",
+              subtitle="Egger's linear regression test, Begg's rank correlation test, and Duval & Tweedie trim-and-fill analysis. Significance threshold: p < 0.05.",
+              filename="Table5_PublicationBias")
 
-    if (!is.null(tf_res)) {
-      rows_pb <- c(rows_pb, list(
-        data.frame(
-          Test           = "Trim-and-Fill: Observed estimate",
-          Statistic      = paste0("r = ", sprintf("%.2f", m_primary$TE.random),
-                                  " [", sprintf("%.2f", m_primary$lower.random),
-                                  ", ", sprintf("%.2f", m_primary$upper.random),
-                                  "]"),
-          `p-value`      = "",
-          Interpretation = "Unadjusted pooled effect",
-          check.names    = FALSE, stringsAsFactors = FALSE
-        ),
-        data.frame(
-          Test           = "Trim-and-Fill: Adjusted estimate",
-          Statistic      = paste0("r = ", sprintf("%.2f", tf_res$TE.random),
-                                  " [", sprintf("%.2f", tf_res$lower.random),
-                                  ", ", sprintf("%.2f", tf_res$upper.random),
-                                  "]"),
-          `p-value`      = "",
-          Interpretation = paste0(tf_res$k0, " stud",
-                                  if (tf_res$k0 == 1) "y" else "ies",
-                                  " imputed"),
-          check.names    = FALSE, stringsAsFactors = FALSE
-        )
-      ))
-    }
-
-    if (length(rows_pb) > 0) {
-      df_t5 <- do.call(rbind, rows_pb)
-      save_word_table(
-        df_t5,
-        title    = "Table 5. Publication Bias Assessment",
-        subtitle = paste0("Egger's regression test, Begg's rank correlation test, ",
-                          "and Duval & Tweedie trim-and-fill analysis. ",
-                          "Threshold for significance: p < 0.05."),
-        filename = "Table5_PublicationBias"
-      )
-    }
-  }, error = function(e) cat("Table 5 error:", e$message, "\n"))
-}
+}, error=function(e) cat("  Table 5 error:",e$message,"\n"))
 
 
-# =============================================================================
-# SUPPLEMENTARY TABLE 1: RISK OF BIAS DETAILS
-# =============================================================================
+# ---- SUPPLEMENTARY TABLE 1: ROB Details ----
+cat("  Building Supp Table 1...\n")
 
-cat("\n=== Supp Table 1: Risk of Bias Details ===\n")
+if (length(rob_domain_cols) >= 2) tryCatch({
+  rob_study_col <- if ("Author_Year" %in% names(df_rob)) "Author_Year" else "Study_ID"
+  st1_cols <- intersect(c(rob_study_col,"Study_Type",rob_domain_cols,"Overall_RoB"),
+                        names(df_rob))
+  df_st1 <- df_rob %>%
+    select(all_of(st1_cols)) %>%
+    rename_with(~ gsub("_"," ",.) %>% tools::toTitleCase())
 
-if (length(rob_cols) >= 2) {
-  tryCatch({
+  ft_st1 <- flextable(df_st1) %>%
+    theme_booktabs() %>% bold(part="header") %>%
+    fontsize(size=9,part="all") %>%
+    font(fontname="Times New Roman",part="all") %>%
+    padding(padding=3,part="all") %>% autofit()
 
-    rob_tab_cols <- c("study_label", "year", rob_cols)
-    rob_tab_cols <- intersect(rob_tab_cols, names(rob_search_df))
+  doc_st1 <- read_docx() %>%
+    body_add_par("Supplementary Table 1. Risk of Bias Assessment — Individual Studies",
+                 style="heading 1") %>%
+    body_add_par("Risk of bias judgements using the Newcastle-Ottawa Scale (NOS) for observational studies and RoB2 for randomised trials. Low = low risk; Some concerns = moderate risk; High = high risk.",
+                 style="Normal") %>%
+    body_add_par("",style="Normal") %>%
+    body_add_flextable(ft_st1)
 
-    df_st1 <- rob_search_df %>%
-      select(all_of(rob_tab_cols)) %>%
-      arrange(across(any_of("year"))) %>%
-      rename_with(~ gsub("_", " ", .) %>% tools::toTitleCase())
+  fpath <- file.path(supp_dir,"SuppTable1_RiskOfBias.docx")
+  print(doc_st1, target=fpath)
+  cat("  Saved:", fpath, "\n")
 
-    ft_rob <- flextable(df_st1) %>%
-      theme_booktabs() %>%
-      bold(part = "header") %>%
-      fontsize(size = 9, part = "all") %>%
-      font(fontname = "Times New Roman", part = "all") %>%
-      padding(padding = 3, part = "all") %>%
-      autofit()
-
-    doc_rob <- read_docx() %>%
-      body_add_par("Supplementary Table 1. Risk of Bias Assessment (Individual Studies)",
-                   style = "heading 1") %>%
-      body_add_par(
-        paste0("Risk of bias judgements for each included study across all assessed domains. ",
-               "Low = low risk of bias; Some concerns = some concerns; High = high risk of bias."),
-        style = "Normal"
-      ) %>%
-      body_add_par("", style = "Normal") %>%
-      body_add_flextable(ft_rob)
-
-    fpath <- file.path(supp_dir, "SuppTable1_RiskOfBias.docx")
-    print(doc_rob, target = fpath)
-    cat("Saved:", fpath, "\n")
-
-  }, error = function(e) cat("Supp Table 1 error:", e$message, "\n"))
-}
+}, error=function(e) cat("  Supp Table 1 error:", e$message,"\n"))
 
 
 # =============================================================================
 # FINAL SUMMARY
 # =============================================================================
 
-cat("\n")
-cat(strrep("=", 65), "\n")
-cat("  META-ANALYSIS COMPLETE\n")
-cat(strrep("=", 65), "\n")
-cat("\n OBJECTIVES AND COVERAGE:\n")
-cat("  Obj 1: Primary (SO-spindle coupling -> declarative memory)\n")
-cat("         -> Figure 2 (forest), Figure 5 (LOO), Table 2\n")
-cat("  Obj 2: Spindle parameters (density/amplitude/sigma)\n")
-cat("         -> Figure 3 (forest), Table 2\n")
-cat("  Obj 3: SO characteristics (amplitude/slope/duration)\n")
-cat("         -> Supp Figure 1, Table 2\n")
-cat("  Obj 4: Subgroup by memory type\n")
-cat("         -> Figure 4 (forest), Table 3\n")
-cat("  Obj 5: Age moderator (meta-regression)\n")
-cat("         -> Figure 8 (bubble), Table 4\n")
-cat("  Obj 6: Risk of bias + publication bias\n")
-cat("         -> Figure 6 (funnel), Figure 7 (trim-fill),\n")
-cat("            Figure 9 (ROB), Table 5, Supp Table 1\n")
-cat("\n FIGURES (PNG, 300 DPI) ->", fig_dir, "\n")
-cat("  Figure 1 : PRISMA Flowchart [MANUAL]\n")
-cat("  Figure 2 : Forest - Primary Outcome\n")
-cat("  Figure 3 : Forest - Spindle Parameters\n")
-cat("  Figure 4 : Forest - Memory Type Subgroup\n")
-cat("  Figure 5 : Leave-One-Out Sensitivity\n")
-cat("  Figure 6 : Funnel Plot\n")
-cat("  Figure 7 : Trim-and-Fill Funnel\n")
-cat("  Figure 8 : Meta-Regression Bubble (Age)\n")
-cat("  Figure 9 : Risk of Bias (Traffic Light + Bar)\n")
-cat("\n SUPPLEMENTARY ->", supp_dir, "\n")
-cat("  Supp Figure 1: Forest - SO Characteristics\n")
-cat("  Supp Figure 2: Baujat Influence Plot\n")
-cat("  Supp Table  1: Risk of Bias (Individual Studies)\n")
-cat("\n TABLES (DOCX) ->", tab_dir, "\n")
-cat("  Table 1: Study Characteristics\n")
-cat("  Table 2: Meta-Analytic Results\n")
-cat("  Table 3: Subgroup Analysis\n")
-cat("  Table 4: Meta-Regression\n")
-cat("  Table 5: Publication Bias\n")
-cat("\n STATISTICAL MODELS:\n")
-cat("  Primary/Subgroup: Random-effects (REML) + Hartung-Knapp CI\n")
-cat("  Effect size: Fisher z-transformed r (ZCOR), displayed as r\n")
-cat("  Meta-regression: Mixed-effects (REML), predictor = mean age\n")
-cat("  Publication bias: Egger, Begg, Trim-and-Fill\n")
-cat("  Influence: Leave-one-out, Baujat plot\n")
-cat(strrep("=", 65), "\n")
+cat("\n", strrep("=",65), "\n", sep="")
+cat("  META-ANALYSIS COMPLETE — FILES SAVED\n")
+cat(strrep("=",65), "\n\n", sep="")
+
+list_saved <- function(d, label) {
+  ff <- list.files(d, pattern="\\.(png|docx)$")
+  cat(label, "(", length(ff), "files):\n")
+  for (f in ff) cat("   +", f, "\n")
+  if (length(ff)==0) cat("   (none generated)\n")
+}
+
+list_saved(fig_dir,  paste0("FIGURES  -> ", fig_dir))
+list_saved(tab_dir,  paste0("TABLES   -> ", tab_dir))
+list_saved(supp_dir, paste0("SUPP     -> ", supp_dir))
+
+cat("\nSTATISTICAL METHODS:\n")
+cat("  Primary model : Random-effects (REML) + Hartung-Knapp CI\n")
+cat("  Effect metric : Fisher z-transformed r, displayed as Pearson r\n")
+cat("  Meta-regression: Mixed-effects REML (predictor: mean age)\n")
+cat("  Publication bias: Egger's test, Begg's test, Trim-and-Fill\n")
+cat("  Influence     : Leave-one-out sensitivity, Baujat plot\n")
+cat(strrep("=",65),"\n",sep="")
